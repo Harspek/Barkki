@@ -23,8 +23,12 @@ YTDL_OPTS = {
     'default_search': 'ytsearch',
 }
 
+looping = True
 
 class GuildPlayer:
+
+    global looping
+
     def __init__(self, bot: commands.Bot, guild_id: int) -> None:
         self.bot = bot
         self.guild_id = guild_id
@@ -39,10 +43,9 @@ class GuildPlayer:
             return
         self.voice_client = await channel.connect()
 
-    async def enqueue_and_play(self, source, interaction: discord.Interaction) -> None:
+    async def enqueue(self, source, interaction: discord.Interaction) -> None:
         self.queue.append(source)
-        if not self.playing:
-            await self._play_next(interaction)
+        print("Song queued")
 
     async def _play_next(self, interaction: discord.Interaction) -> None:
         if not self.queue:
@@ -50,6 +53,7 @@ class GuildPlayer:
             return
         self.playing = True
         source = self.queue.popleft()
+
         if not self.voice_client or not self.voice_client.is_connected():
             # Attempt to reconnect to the user's channel
             if interaction.user and interaction.user.voice and interaction.user.voice.channel:
@@ -65,15 +69,22 @@ class GuildPlayer:
                 fut.result()
             except Exception:
                 pass
+        
+        if looping:
+            await self.enqueue(source, interaction)
 
         # Insert everything required into FFMPEG and voila, music! (If not just a lil laggy)
         before = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
         opts = '-vn -b:a 2M -bufsize 1M'
         self.voice_client.play(discord.FFmpegPCMAudio(source, before_options=before, options=opts), after=_after)
         self.voice_client.source = discord.PCMVolumeTransformer(self.voice_client.source)
+        print("Now playing")
 
 
 class MusicCog(commands.Cog):
+
+    global looping
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.players: dict[int, GuildPlayer] = {}
@@ -108,8 +119,8 @@ class MusicCog(commands.Cog):
         return await loop.run_in_executor(None, extract)
 
     @app_commands.command(name="play", description="Play a track or link in your voice channel")
-    @app_commands.describe(link="Spotify/YouTube link or search term")
-    async def play(self, interaction: discord.Interaction, link: str) -> None:
+    @app_commands.describe(link="Spotify/YouTube link or search term", args=("Additional functions (loop)"))
+    async def play(self, interaction: discord.Interaction, link: str, args: str) -> None:
         await interaction.response.defer(thinking=True)
         if not interaction.user or not interaction.user.voice or not interaction.user.voice.channel:
             await interaction.followup.send("I would follow you, but you are not in a voice channel.")
@@ -130,8 +141,14 @@ class MusicCog(commands.Cog):
             await interaction.followup.send("Are you sure that exists, i cant quite sniff it out.")
             return
 
-        await player.enqueue_and_play(source_url, interaction)
-        await interaction.followup.send(f"Queued: {query}")
+        response_text = f"Queued: {query}"
+        if (args == "loop"):
+            looping == True
+            response_text += " (looping)"
+
+        await player.enqueue(source_url, interaction)
+        await player._play_next(interaction)
+        await interaction.followup.send(response_text)
 
     @app_commands.command(name="skip", description="Skip current track")
     async def skip(self, interaction: discord.Interaction) -> None:
