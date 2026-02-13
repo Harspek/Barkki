@@ -52,7 +52,6 @@ def create_and_run_bot():
     # Start the bot (blocking call, it keeps running until stopped)
     bot.run(CONFIG.token)
 
-
 # Run the bot if this file is run directly (python Barkki.py)
 if __name__ == "__main__":
     create_and_run_bot()
