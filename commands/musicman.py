@@ -1,21 +1,22 @@
 """
 musicman.py -- Bot as music player in voice call
-TODO: Looping + general improvements, mayhaps once we are in c++
+TODO: General improvement
 """
 
-import asyncio
+import asyncio # Asynchronous processes
 import discord
-import spotipy
-import yt_dlp
+import spotipy # Used to resolve provided spotify links
+import yt_dlp # Takes Spotipy resolved data to instead play from YouTube
 
 from collections import deque
 from discord.ext import commands
 from discord import app_commands
 from spotipy import SpotifyClientCredentials
 
-auth_manager = SpotifyClientCredentials()
+auth_manager = SpotifyClientCredentials() # Spotify, and thus Spotipy, requires an "application" to be made in the Spotify Dev Portal
 sp = spotipy.Spotify(auth_manager=auth_manager)
 
+# Options for when utilizing YT-DLP
 YTDL_OPTS = {
     'format': 'bestaudio/best',
     'noplaylist': True,
@@ -23,7 +24,7 @@ YTDL_OPTS = {
     'default_search': 'ytsearch',
 }
 
-looping = True
+looping = True # Globalized bool for comms between GuildPlayers and the commands
 
 class GuildPlayer:
 
@@ -36,18 +37,18 @@ class GuildPlayer:
         self.playing = False
         self.voice_client: discord.VoiceClient | None = None
 
-    async def ensure_voice(self, channel: discord.VoiceChannel) -> None:
+    async def ensure_voice(self, channel: discord.VoiceChannel) -> None: # Connects to the channel the client is in
         if self.voice_client and self.voice_client.is_connected():
             if self.voice_client.channel.id != channel.id:
                 await self.voice_client.move_to(channel)
             return
         self.voice_client = await channel.connect()
 
-    async def enqueue(self, source, interaction: discord.Interaction) -> None:
+    async def enqueue(self, source) -> None: # Queue a song
         self.queue.append(source)
         print("Song queued")
 
-    async def _play_next(self, interaction: discord.Interaction) -> None:
+    async def _play_next(self, interaction: discord.Interaction) -> None: # Play a song, with logic to continue down the queue
         if not self.queue:
             self.playing = False
             return
@@ -62,7 +63,7 @@ class GuildPlayer:
             self.playing = False
             return
 
-        def _after(err):
+        def _after(err): # Utitilized by .play after the song ends
             coro = self._play_next(interaction)
             fut = asyncio.run_coroutine_threadsafe(coro, self.bot.loop)
             try:
@@ -73,7 +74,7 @@ class GuildPlayer:
         if looping:
             await self.enqueue(source, interaction)
 
-        # Insert everything required into FFMPEG and voila, music! (If not just a lil laggy)
+        # Insert everything required into FFMPEG and voila, music! (If not just a lil laggy, quite heavy on the internet)
         before = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
         opts = '-vn -b:a 2M -bufsize 1M'
         self.voice_client.play(discord.FFmpegPCMAudio(source, before_options=before, options=opts), after=_after)
@@ -94,8 +95,7 @@ class MusicCog(commands.Cog):
             self.players[guild_id] = GuildPlayer(self.bot, guild_id)
         return self.players[guild_id]
 
-    async def _resolve_spotify(self, link: str) -> str:
-        # For Spotify tracks and episodes get a search string and use yt-dlp to find a playable YouTube source
+    async def _resolve_spotify(self, link: str) -> str: # Get the data required to match the song from Spotify to YouTube
         if 'open.spotify.com/track' in link:
             track = sp.track(link)
             title = track.get('name')
@@ -107,7 +107,7 @@ class MusicCog(commands.Cog):
         ytdl = yt_dlp.YoutubeDL(YTDL_OPTS)
         loop = asyncio.get_event_loop()
 
-        def extract():
+        def extract(): # Extracting the data from YouTube
             try:
                 info = ytdl.extract_info(query, download=False)
                 if 'entries' in info:
